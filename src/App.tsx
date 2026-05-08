@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { motion } from "motion/react";
 import { 
   Wifi, 
   Tv, 
@@ -24,9 +23,64 @@ import {
   Twitter,
   Linkedin,
   MapPin,
-  Check
+  Check,
+  CreditCard,
+  Share2,
+  Copy,
+  LayoutDashboard,
+  LogOut,
+  Clock,
+  ExternalLink,
+  Trash2
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { db, auth, signInWithGoogle } from "./lib/firebase";
+import { 
+  collection, 
+  addDoc, 
+  serverTimestamp, 
+  getDocs, 
+  query, 
+  orderBy, 
+  onSnapshot,
+  doc,
+  updateDoc,
+  deleteDoc,
+  getDoc,
+  setDoc
+} from "firebase/firestore";
+import { onAuthStateChanged, signOut, User as FirebaseUser } from "firebase/auth";
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: any;
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const handleScrollTo = (id: string) => {
   const element = document.getElementById(id);
@@ -38,6 +92,297 @@ const handleScrollTo = (id: string) => {
   }
 };
 
+const PayBillModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-amber-dark/80 backdrop-blur-sm" 
+          />
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            className="relative bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
+          >
+            <div className="bg-amber-red p-6 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <CreditCard size={24} />
+                <h3 className="text-xl font-bold uppercase tracking-tight">Pay Your Bill</h3>
+              </div>
+              <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-8">
+              <div className="mb-6 p-4 bg-slate-50 border-l-4 border-amber-red rounded-r-xl">
+                <p className="text-xs font-black text-amber-dark uppercase mb-1">bKash Number (Personal)</p>
+                <p className="text-lg font-black text-amber-red">01344-201022</p>
+                <p className="text-[10px] text-slate-500 mt-1 font-bold italic">মুল্য পরিশোধের পর নিচে তথ্য প্রদান করুন</p>
+              </div>
+
+              <form 
+                className="space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const name = formData.get('name');
+                  const cid = formData.get('cid');
+                  const month = formData.get('month');
+                  const amount = formData.get('amount');
+                  const trx = formData.get('trx');
+                  
+                  const message = `Payment Confirmation Alert! 💸%0A%0ACustomer: ${name}%0ACustomer ID: ${cid}%0AMonth: ${month}%0AAmount: ${amount}%0ATrxID: ${trx}`;
+                  window.open(`https://wa.me/8801344201022?text=${message}`, '_blank');
+                  onClose();
+                }}
+              >
+                <input name="name" required placeholder="Customer Name" className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-xl focus:border-amber-red outline-none font-bold" />
+                <div className="grid grid-cols-2 gap-4">
+                  <input name="cid" required placeholder="User ID / Box ID" className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-xl focus:border-amber-red outline-none font-bold" />
+                  <input name="amount" required type="number" placeholder="Bill Amount" className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-xl focus:border-amber-red outline-none font-bold" />
+                </div>
+                <select name="month" required className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-xl focus:border-amber-red outline-none font-bold">
+                  <option value="">Billing Month</option>
+                  {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <input name="trx" required placeholder="bKash TrxID (Last 4/8 digit)" className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-xl focus:border-amber-red outline-none font-bold" />
+                
+                <button type="submit" className="w-full h-14 bg-amber-red text-white font-black rounded-xl hover:bg-amber-dark transition-all shadow-lg shadow-amber-red/20 mt-4">
+                  CONFIRM PAYMENT
+                </button>
+              </form>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const ReferralModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
+  const [refId, setRefId] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+
+  const handleGenerate = () => {
+    if (!refId) return;
+    const link = `${window.location.origin}?ref=${encodeURIComponent(refId)}`;
+    setGeneratedLink(link);
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(generatedLink);
+    alert("Referral Link Copied!");
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-amber-dark/80 backdrop-blur-sm" 
+          />
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            className="relative bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
+          >
+            <div className="bg-amber-dark p-6 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Share2 size={24} className="text-amber-red" />
+                <h3 className="text-xl font-bold uppercase tracking-tight">Referral Program</h3>
+              </div>
+              <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-8">
+              <div className="text-center mb-8">
+                <div className="w-20 h-20 bg-amber-red/10 rounded-full flex items-center justify-center text-amber-red mx-auto mb-4">
+                  <Zap size={40} className="stroke-[3]" />
+                </div>
+                <h4 className="text-xl font-black mb-2">🎁 Get Free Router</h4>
+                <p className="text-slate-500 text-sm font-medium">Invite 3 friends and get a brand new router for free!</p>
+              </div>
+
+              {!generatedLink ? (
+                <div className="space-y-4">
+                  <input 
+                    value={refId}
+                    onChange={(e) => setRefId(e.target.value)}
+                    placeholder="Enter Your Name or ID" 
+                    className="w-full h-14 px-6 bg-slate-50 border border-slate-200 rounded-xl focus:border-amber-red outline-none font-bold text-center" 
+                  />
+                  <button 
+                    onClick={handleGenerate}
+                    disabled={!refId}
+                    className="w-full h-14 bg-amber-red text-white font-black rounded-xl hover:bg-amber-dark transition-all disabled:opacity-50"
+                  >
+                    GENERATE LINK
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="p-4 bg-slate-50 border rounded-xl items-center flex justify-between overflow-hidden">
+                    <span className="text-xs font-bold text-slate-500 truncate mr-2 italic">{generatedLink}</span>
+                    <button onClick={copyToClipboard} className="text-amber-red hover:text-amber-dark shrink-0">
+                      <Copy size={20} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => window.open(`https://wa.me/?text=Hey! I am using City Cable Network. Use my referral to join: ${generatedLink}`, '_blank')}
+                      className="flex items-center justify-center gap-2 h-14 bg-[#25D366] text-white font-black rounded-xl"
+                    >
+                      <Smartphone size={20} /> WhatsApp
+                    </button>
+                    <button 
+                      onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${generatedLink}`, '_blank')}
+                      className="flex items-center justify-center gap-2 h-14 bg-[#1877F2] text-white font-black rounded-xl"
+                    >
+                      <Facebook size={20} /> Facebook
+                    </button>
+                  </div>
+                  <button onClick={() => setGeneratedLink("")} className="w-full text-xs font-bold text-slate-400 uppercase tracking-widest hover:text-amber-red">
+                    Generate for someone else
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const AdminDashboard = ({ isAdmin, onClose }: { isAdmin: boolean, onClose: () => void }) => {
+  const [apps, setApps] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const q = query(collection(db, "applications"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setApps(data);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, "applications");
+    });
+
+    return () => unsubscribe();
+  }, [isAdmin]);
+
+  const updateStatus = async (id: string, status: string) => {
+    try {
+      const ref = doc(db, "applications", id);
+      await updateDoc(ref, { status });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `applications/${id}`);
+    }
+  };
+
+  const deleteApp = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this application?")) return;
+    try {
+      await deleteDoc(doc(db, "applications", id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `applications/${id}`);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-slate-50 overflow-auto">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex justify-between items-center mb-10">
+          <div className="flex items-center gap-3">
+            <LayoutDashboard className="text-amber-red w-8 h-8" />
+            <h1 className="text-3xl font-black uppercase tracking-tight">Connection Applications</h1>
+          </div>
+          <button onClick={onClose} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-all font-bold flex items-center gap-2">
+            <X size={20} /> Close Dashboard
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-20">
+            <div className="animate-spin w-10 h-10 border-4 border-amber-red border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="font-bold text-slate-400">Loading applications...</p>
+          </div>
+        ) : apps.length === 0 ? (
+          <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
+            <p className="font-bold text-slate-400">No applications found yet.</p>
+          </div>
+        ) : (
+          <div className="grid gap-6">
+            {apps.map((app) => (
+              <div key={app.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row justify-between gap-6 items-start md:items-center">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      app.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                      app.status === 'contacted' ? 'bg-blue-100 text-blue-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>
+                      {app.status}
+                    </span>
+                    <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+                      <Clock size={12} /> {app.createdAt?.toDate().toLocaleString()}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-black text-amber-dark">{app.name}</h3>
+                  <p className="text-amber-red font-bold text-lg mb-2">{app.phone}</p>
+                  <p className="text-sm font-medium text-slate-500 mb-1"><span className="font-bold text-slate-700 uppercase text-[10px]">Plan:</span> {app.plan}</p>
+                  <p className="text-sm font-medium text-slate-500"><span className="font-bold text-slate-700 uppercase text-[10px]">Address:</span> {app.address}</p>
+                </div>
+                
+                <div className="flex flex-wrap gap-3 shrink-0">
+                  <select 
+                    value={app.status} 
+                    onChange={(e) => updateStatus(app.id, e.target.value)}
+                    className="h-10 px-4 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-red"
+                  >
+                    <option value="pending">Mark Pending</option>
+                    <option value="contacted">Mark Contacted</option>
+                    <option value="completed">Mark Completed</option>
+                  </select>
+                  <button 
+                    onClick={() => window.open(`tel:${app.phone}`)}
+                    className="h-10 px-4 bg-amber-red text-white font-bold rounded-lg text-sm flex items-center gap-2"
+                  >
+                    <Phone size={14} /> Call
+                  </button>
+                  <button 
+                    onClick={() => deleteApp(app.id)}
+                    className="h-10 w-10 flex items-center justify-center bg-slate-100 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 const TopBar = () => (
   <div className="bg-[#1a1a1a] text-white py-2 text-xs md:text-sm hidden sm:block">
     <div className="max-w-7xl mx-auto px-4 flex justify-between items-center">
@@ -68,7 +413,7 @@ const TopBar = () => (
   </div>
 );
 
-const Navbar = () => {
+const Navbar = ({ onPayBill }: { onPayBill: () => void }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -113,14 +458,12 @@ const Navbar = () => {
                 </button>
               ))}
             </div>
-            <a 
-              href="https://wa.me/8801344201022" 
-              target="_blank" 
-              rel="noreferrer"
+            <button 
+              onClick={onPayBill}
               className="bg-amber-red text-white px-6 py-2.5 rounded-md font-bold text-sm hover:bg-amber-dark transition-all shadow-md"
             >
               PAY BILL
-            </a>
+            </button>
           </div>
 
           {/* Mobile Button */}
@@ -146,7 +489,7 @@ const Navbar = () => {
           ].map((item) => (
             <button key={item.id} onClick={() => { handleScrollTo(item.id); setIsOpen(false); }} className="font-bold text-amber-dark py-2 text-left">{item.label}</button>
           ))}
-          <a href="https://wa.me/8801344201022" target="_blank" rel="noreferrer" className="bg-amber-red text-white w-full py-3 rounded-md font-bold text-center">PAY BILL</a>
+          <button onClick={() => { onPayBill(); setIsOpen(false); }} className="bg-amber-red text-white w-full py-3 rounded-md font-bold text-center">PAY BILL</button>
         </div>
       </motion.div>
     </nav>
@@ -203,6 +546,61 @@ const PriceCard = ({ title, speed, price, features, recommended }: any) => (
 );
 
 export default function App() {
+  const [isPayOpen, setIsPayOpen] = useState(false);
+  const [isRefOpen, setIsRefOpen] = useState(false);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        try {
+          const docRef = doc(db, "admins", u.uid);
+          const docSnap = await getDoc(docRef);
+          setIsAdmin(docSnap.exists());
+        } catch (error) {
+          console.error("Error checking admin status:", error);
+        }
+      } else {
+        setIsAdmin(false);
+      }
+    });
+    return () => unsubAuth();
+  }, []);
+
+  const handleAdminLogin = async () => {
+    if (user) {
+      if (isAdmin) {
+        setShowDashboard(true);
+      } else if (user.email === 'computervillage371@gmail.com') {
+        try {
+          // Self-register lead admin
+          await setDoc(doc(db, "admins", user.uid), {
+            email: user.email,
+            role: 'super-admin',
+            createdAt: serverTimestamp()
+          });
+          setIsAdmin(true);
+          setShowDashboard(true);
+        } catch (error) {
+          console.error("Error self-registering admin:", error);
+          alert("Failed to register admin. Please try again.");
+        }
+      } else {
+        alert("You are not authorized as an admin.");
+      }
+    } else {
+      try {
+        await signInWithGoogle();
+      } catch (error) {
+        console.error("Login Error:", error);
+      }
+    }
+  };
+
   const openWhatsApp = () => {
     window.open("https://wa.me/8801344201022", "_blank");
   };
@@ -210,7 +608,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-white">
       <TopBar />
-      <Navbar />
+      <Navbar onPayBill={() => setIsPayOpen(true)} />
+
+      <PayBillModal isOpen={isPayOpen} onClose={() => setIsPayOpen(false)} />
+      <ReferralModal isOpen={isRefOpen} onClose={() => setIsRefOpen(false)} />
+      
+      {showDashboard && isAdmin && (
+        <AdminDashboard isAdmin={isAdmin} onClose={() => setShowDashboard(false)} />
+      )}
       
       {/* Hero Section */}
       <section id="home" className="relative h-[600px] lg:h-[800px] flex items-center overflow-hidden bg-amber-dark pt-20">
@@ -270,7 +675,7 @@ export default function App() {
               <p className="font-bold opacity-90">৩ জন বন্ধুকে রেফার করুন, আর জিতে নিন একটি ব্র্যান্ড নিউ রাউটার!</p>
             </div>
           </div>
-          <button onClick={openWhatsApp} className="bg-white text-amber-red px-8 py-3 rounded-full font-black text-sm hover:scale-105 transition-transform uppercase">
+          <button onClick={() => setIsRefOpen(true)} className="bg-white text-amber-red px-8 py-3 rounded-full font-black text-sm hover:scale-105 transition-transform uppercase">
             রেফার করুন এখনই
           </button>
         </div>
@@ -383,16 +788,64 @@ export default function App() {
             <h3 className="text-2xl font-black mb-6 uppercase">নতুন কানেকশন নিন</h3>
             <form 
               className="space-y-4" 
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
+                setIsSubmitting(true);
                 const formData = new FormData(e.currentTarget);
-                const name = formData.get('name');
-                const phone = formData.get('phone');
-                const plan = formData.get('plan');
-                const address = formData.get('address');
+                const name = formData.get('name') as string;
+                const phone = formData.get('phone') as string;
+                const plan = formData.get('plan') as string;
+                const address = formData.get('address') as string;
                 
-                const message = `Hello City Cable! I want a new connection:%0A%0AName: ${name}%0APhone: ${phone}%0APackage: ${plan}%0AAddress: ${address}`;
-                window.open(`https://wa.me/8801344201022?text=${message}`, '_blank');
+                try {
+                  // 1. Submit to Local Firestore
+                  await addDoc(collection(db, "applications"), {
+                    name,
+                    phone,
+                    plan,
+                    address,
+                    status: 'pending',
+                    createdAt: serverTimestamp()
+                  });
+
+                  // 2. Submit to External System (requested by user)
+                  try {
+                    const externalUrl = "https://ais-dev-flo5uzm5xgsrf6osraiwsq-888599984123.asia-southeast1.run.app/connection-requests";
+                    const apiKey = import.meta.env.VITE_EXTERNAL_API_KEY || "AIzaSyCzBf69Gue84rfCGijhAvXDTRAXmhG2HrU";
+                    
+                    await fetch(externalUrl, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`,
+                        'x-api-key': apiKey // Adding as both commonly used patterns
+                      },
+                      body: JSON.stringify({
+                        name,
+                        phone,
+                        plan,
+                        address,
+                        source: 'CITY_CABLE_OFFICIAL',
+                        submittedAt: new Date().toISOString()
+                      })
+                    });
+                  } catch (extErr) {
+                    console.warn("External submission failed but local DB is updated:", extErr);
+                  }
+
+                  // 3. Open WhatsApp for confirmation
+                  const message = `Hello City Cable! I just submitted a new connection request:%0A%0AName: ${name}%0APhone: ${phone}%0APackage: ${plan}%0AAddress: ${address}`;
+                  window.open(`https://wa.me/8801344201022?text=${message}`, '_blank');
+                  
+                  // Reset form
+                  (e.target as HTMLFormElement).reset();
+                  alert("Application submitted successfully!");
+                } catch (error) {
+                  console.error("Firestore submission error:", error);
+                  handleFirestoreError(error, OperationType.CREATE, "applications");
+                } finally {
+                  setIsSubmitting(false);
+                }
               }}
             >
               <input name="name" type="text" required placeholder="আপনার নাম" className="w-full h-14 px-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none text-amber-dark font-medium" />
@@ -405,8 +858,15 @@ export default function App() {
                 <option value="CCTV Help">সিসিটিভি ক্যামেরা হেল্প</option>
               </select>
               <textarea name="address" required placeholder="আপনার ঠিকানা" className="w-full h-32 p-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none text-amber-dark font-medium resize-none"></textarea>
-              <button type="submit" className="w-full h-16 bg-amber-red text-white font-black text-lg shadow-lg shadow-amber-red/20 hover:bg-amber-dark transition-all rounded-xl">
-                সাবমিট করুন
+              <button 
+                type="submit" 
+                disabled={isSubmitting}
+                className="w-full h-16 bg-amber-red text-white font-black text-lg shadow-lg shadow-amber-red/20 hover:bg-amber-dark transition-all rounded-xl disabled:opacity-50 flex items-center justify-center gap-3"
+              >
+                {isSubmitting ? (
+                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : null}
+                {isSubmitting ? "Submitting..." : "সাবমিট করুন"}
               </button>
             </form>
           </div>
@@ -477,9 +937,17 @@ export default function App() {
           
           <div className="pt-10 border-t border-white/5 flex flex-col md:flex-row justify-between items-center text-[10px] sm:text-xs font-black text-slate-500 uppercase tracking-[0.2em] gap-6">
             <div>© 2026 CITY CABLE NETWORK (CCN). ALL RIGHTS RESERVED.</div>
-            <div className="flex gap-8">
+            <div className="flex gap-8 items-center">
+              <button 
+                onClick={handleAdminLogin}
+                className="flex items-center gap-2 hover:text-white transition-colors"
+              >
+                <LayoutDashboard size={14} /> Admin Access
+              </button>
+              {user && (
+                <button onClick={() => signOut(auth)} className="text-amber-red hover:underline">Logout</button>
+              )}
               <span>SUPPORT: +8801344201022</span>
-              <span className="text-[#333]">MODERN BROADBAND SOLUTIONS</span>
             </div>
           </div>
         </div>

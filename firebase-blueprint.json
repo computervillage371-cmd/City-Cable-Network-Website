@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "Application": {
+      "title": "Connection Application",
+      "description": "A request for a new broadband connection",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Customer name" },
+        "phone": { "type": "string", "description": "Customer phone number" },
+        "plan": { "type": "string", "description": "Selected internet package" },
+        "address": { "type": "string", "description": "Service address" },
+        "status": { 
+          "type": "string", 
+          "enum": ["pending", "contacted", "completed"],
+          "description": "Current status of the request" 
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Submission time" }
+      },
+      "required": ["name", "phone", "plan", "address", "status", "createdAt"]
+    },
+    "Admin": {
+      "title": "System Administrator",
+      "description": "Users with access to the dashboard",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["super-admin", "staff"] }
+      }
+    }
+  },
+  "firestore": {
+    "applications": {
+      "schema": "Application",
+      "description": "Collection of all connection requests"
+    },
+    "admins": {
+      "schema": "Admin",
+      "description": "Whitelisted admin users"
+    }
+  }
+}

@@ -1,0 +1,71 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Application Validation ---
+    function isValidApplication(data) {
+      let requiredFields = ['name', 'phone', 'plan', 'address', 'status', 'createdAt'];
+      return data.keys().hasAll(requiredFields) 
+        && data.keys().size() == 6
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.phone is string && data.phone.size() >= 10 && data.phone.size() <= 15
+        && data.plan is string && data.plan.size() > 0 && data.plan.size() <= 50
+        && data.address is string && data.address.size() > 0 && data.address.size() <= 500
+        && data.status in ['pending', 'contacted', 'completed']
+        && data.createdAt == request.time;
+    }
+
+    // --- Routes ---
+
+    match /applications/{appId} {
+      // Anyone can create an application
+      allow create: if isValidId(appId) 
+        && isValidApplication(incoming())
+        && incoming().status == 'pending';
+
+      // Only admins can read, update, or delete
+      allow get, list, delete: if isAdmin();
+      
+      allow update: if isAdmin() 
+        && isValidApplication(incoming())
+        && incoming().createdAt == existing().createdAt; // createdAt is immutable
+    }
+
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() 
+        && request.auth.token.email == 'computervillage371@gmail.com' 
+        && request.auth.token.email_verified == true;
+    }
+  }
+}
