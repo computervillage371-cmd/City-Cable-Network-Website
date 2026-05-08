@@ -381,18 +381,31 @@ export default function App() {
           </div>
           <div className="bg-slate-50 p-10 rounded-3xl border border-slate-100">
             <h3 className="text-2xl font-black mb-6 uppercase">নতুন কানেকশন নিন</h3>
-            <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-              <input type="text" placeholder="আপনার নাম" className="w-full h-14 px-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none" />
-              <input type="text" placeholder="মোবাইল নাম্বার" className="w-full h-14 px-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none" />
-              <select className="w-full h-14 px-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none">
-                <option>প্যাকেজ নির্বাচন করুন</option>
-                <option>১০ Mbps (৫০০৳)</option>
-                <option>২০ Mbps (৮০০৳)</option>
-                <option>৩৫ Mbps (১২০০৳)</option>
-                <option>সিসিটিভি ক্যামেরা হেল্প</option>
+            <form 
+              className="space-y-4" 
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const name = formData.get('name');
+                const phone = formData.get('phone');
+                const plan = formData.get('plan');
+                const address = formData.get('address');
+                
+                const message = `Hello City Cable! I want a new connection:%0A%0AName: ${name}%0APhone: ${phone}%0APackage: ${plan}%0AAddress: ${address}`;
+                window.open(`https://wa.me/8801344201022?text=${message}`, '_blank');
+              }}
+            >
+              <input name="name" type="text" required placeholder="আপনার নাম" className="w-full h-14 px-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none text-amber-dark font-medium" />
+              <input name="phone" type="text" required placeholder="মোবাইল নাম্বার" className="w-full h-14 px-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none text-amber-dark font-medium" />
+              <select name="plan" required className="w-full h-14 px-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none text-amber-dark font-medium">
+                <option value="">প্যাকেজ নির্বাচন করুন</option>
+                <option value="10 Mbps (500Tk)">১০ Mbps (৫০০৳)</option>
+                <option value="20 Mbps (800Tk)">২০ Mbps (৮০০৳)</option>
+                <option value="35 Mbps (1200Tk)">৩৫ Mbps (১২০০৳)</option>
+                <option value="CCTV Help">সিসিটিভি ক্যামেরা হেল্প</option>
               </select>
-              <textarea placeholder="আপনার ঠিকানা" className="w-full h-32 p-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none"></textarea>
-              <button className="w-full h-16 bg-amber-red text-white font-black text-lg shadow-lg shadow-amber-red/20 hover:scale-[1.02] transition-all">
+              <textarea name="address" required placeholder="আপনার ঠিকানা" className="w-full h-32 p-6 bg-white border border-slate-200 rounded-xl focus:border-amber-red outline-none text-amber-dark font-medium resize-none"></textarea>
+              <button type="submit" className="w-full h-16 bg-amber-red text-white font-black text-lg shadow-lg shadow-amber-red/20 hover:bg-amber-dark transition-all rounded-xl">
                 সাবমিট করুন
               </button>
             </form>
